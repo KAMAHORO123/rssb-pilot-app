@@ -1,11 +1,12 @@
 # Runs on every pull request into develop, qa or main.
 # Answers one question: "is this change safe to merge?" Nothing is published.
 #
-#   test            format, lint, typecheck, unit tests, build (backend + frontend)
-#   secret-scan     Gitleaks over the full git history
-#   sast            CodeQL static analysis of our TypeScript source
-#   dockerfile-lint Hadolint on every Dockerfile
-#   image-scan      build each image and scan it with Trivy (CRITICAL blocks)
+# Stages (each waits for the previous one, so failures stop the run early):
+#
+#   1. secret-scan, dockerfile-lint   seconds  Gitleaks over full history, Hadolint
+#   2. test, sast                     ~1 min   npm checks (backend + frontend), CodeQL
+#   3. image-scan                     ~2 min   build each image, Trivy (CRITICAL blocks)
+#   4. all-checks-passed              gate     the single check branch protection requires
 #
 # Every third-party action is pinned to a full commit SHA (tags can be moved).
 
@@ -35,6 +36,7 @@ env:
 jobs:
   test:
     name: test (${{ matrix.app }})
+    needs: [secret-scan, dockerfile-lint]
     runs-on: ubuntu-24.04
     strategy:
       fail-fast: false
@@ -74,6 +76,7 @@ jobs:
         run: ./gitleaks git . --redact --verbose
 
   sast:
+    needs: [secret-scan, dockerfile-lint]
     runs-on: ubuntu-24.04
     permissions:
       contents: read
@@ -102,6 +105,7 @@ jobs:
 
   image-scan:
     name: image-scan (${{ matrix.image.name }})
+    needs: [test, sast]
     runs-on: ubuntu-24.04
     strategy:
       fail-fast: false
@@ -134,3 +138,21 @@ jobs:
             -v "$PWD/.trivyignore:/.trivyignore:ro" "$TRIVY_IMAGE" image \
             --ignorefile /.trivyignore --ignore-unfixed --severity CRITICAL \
             --exit-code 1 --quiet scan/${{ matrix.image.name }}:pr
+
+  # Branch protection requires only this job. It fails if any stage failed or
+  # was skipped, so new jobs added above are covered automatically via `needs`.
+  all-checks-passed:
+    if: always()
+    needs: [secret-scan, dockerfile-lint, test, sast, image-scan]
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Report stage results
+        env:
+          NEEDS: ${{ toJSON(needs) }}
+        run: echo "$NEEDS"
+      - name: Fail if any stage failed, was cancelled or skipped
+        if: >-
+          contains(needs.*.result, 'failure') ||
+          contains(needs.*.result, 'cancelled') ||
+          contains(needs.*.result, 'skipped')
+        run: exit 1
