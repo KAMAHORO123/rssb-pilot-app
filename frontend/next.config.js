@@ -38,7 +38,10 @@ loadRootEnv();
 const nextConfig = {
   reactStrictMode: true,
   // Emit a self-contained server (.next/standalone) for small container images.
-  output: "standalone"
+  output: "standalone",
+  // The app does not use next/image; keep the optimizer (sharp/libheif, see
+  // .trivyignore) switched off so it cannot be enabled by accident.
+  images: { unoptimized: true }
 };
 
 module.exports = nextConfig;
