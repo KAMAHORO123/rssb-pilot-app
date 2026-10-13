@@ -1,0 +1,70 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: logistics
+      POSTGRES_PASSWORD: logistics
+      POSTGRES_DB: logistics
+    ports:
+      # Host 5433 (a native Postgres already owns 5432 on this Mac)
+      - "5433:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U logistics -d logistics"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  # One-off: apply Prisma migrations + seed demo data, then exit.
+  migrate:
+    image: smart-logistics-backend-migrator:local
+    build:
+      context: ./backend
+      dockerfile: ../docker/backend.Dockerfile
+      target: migrator
+    environment:
+      DATABASE_URL: postgres://logistics:logistics@postgres:5432/logistics
+      RUN_SEED: "true"
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  backend:
+    image: smart-logistics-backend:local
+    build:
+      context: ./backend
+      dockerfile: ../docker/backend.Dockerfile
+      target: runtime
+    environment:
+      DATABASE_URL: postgres://logistics:logistics@postgres:5432/logistics
+      JWT_SECRET: change-me
+      JWT_ISSUER: smart-logistics
+      JWT_AUDIENCE: smart-logistics-web
+      ALLOWED_ORIGINS: http://localhost:8080
+      PORT: 3001
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+
+  frontend:
+    image: smart-logistics-frontend:local
+    build:
+      context: ./frontend
+      dockerfile: ../docker/frontend.Dockerfile
+    depends_on:
+      - backend
+
+  # Plays the role of the Kubernetes ingress. Open http://localhost:8080
+  gateway:
+    image: nginx:1.27-alpine
+    ports:
+      - "8080:80"
+    volumes:
+      - ./docker/gateway.nginx.conf:/etc/nginx/conf.d/default.conf:ro
+    depends_on:
+      - frontend
+      - backend
+
+volumes:
+  postgres_data:

@@ -1,0 +1,22 @@
+{
+  "scripts": {
+    "dev": "concurrently -k -n db,backend,frontend -c blue,green,magenta \"npm run dev:db\" \"npm run dev:backend\" \"npm run dev:frontend\"",
+    "dev:db": "docker compose -f docker-compose.dev.yml up",
+    "dev:backend": "npm --prefix backend run start:dev",
+    "dev:frontend": "npm --prefix frontend run dev",
+    "dev:stop": "docker compose -f docker-compose.dev.yml down",
+    "format": "npm --prefix frontend run format && npm --prefix backend run format",
+    "format:check": "npm --prefix frontend run format:check && npm --prefix backend run format:check",
+    "lint": "npm --prefix frontend run lint && npm --prefix backend run lint",
+    "typecheck": "npm --prefix frontend run typecheck && npm --prefix backend run typecheck",
+    "test": "npm --prefix backend run test && npm --prefix frontend run test"
+  },
+  "dependencies": {
+    "@nestjs/platform-socket.io": "^11.1.17",
+    "@nestjs/websockets": "^11.1.17",
+    "socket.io": "^4.8.3"
+  },
+  "devDependencies": {
+    "concurrently": "^9.2.1"
+  }
+}

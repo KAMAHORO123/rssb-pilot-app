@@ -1,0 +1,114 @@
+generator client {
+    provider = "prisma-client-js"
+}
+
+datasource db {
+    provider = "postgresql"
+    url      = env("DATABASE_URL")
+}
+
+enum Role {
+    ADMIN
+    USER
+    COURIER
+}
+
+enum ShipmentStatus {
+    CREATED
+    ASSIGNED
+    PICKED_UP
+    IN_TRANSIT
+    DELIVERED
+    DELAYED
+    CANCELLED
+}
+
+model User {
+    id                  String          @id @default(uuid())
+    email               String          @unique
+    password            String
+    role                Role            @default(USER)
+    createdAt           DateTime        @default(now())
+    updatedAt           DateTime        @updatedAt
+
+    courier             Courier?
+    shipments           Shipment[]      @relation("UserShipments")
+    auditLogs          AuditLog[]      @relation("UserAuditLogs")
+    refreshTokens      RefreshToken[]  @relation("UserRefreshTokens")
+}
+
+model Courier {
+    id                  String          @id @default(uuid())
+    userId              String          @unique
+    vehicleType         String?
+    availability        Boolean         @default(true)
+    createdAt           DateTime        @default(now())
+    updatedAt           DateTime        @updatedAt
+
+    user                User            @relation(fields: [userId], references: [id])
+    shipments           Shipment[]      @relation("CourierShipments")
+}
+
+model Shipment {
+    id                  String          @id @default(uuid())
+    title               String
+    description         String?
+    pickupAddress       String
+    deliveryAddress     String
+    status              ShipmentStatus  @default(CREATED)
+    createdById         String
+    assignedCourierId   String?
+    createdAt           DateTime        @default(now())
+    updatedAt           DateTime        @updatedAt
+
+    createdBy           User            @relation("UserShipments", fields: [createdById], references: [id])
+    assignedCourier     Courier?        @relation("CourierShipments", fields: [assignedCourierId], references: [id])
+    trackingEvents      TrackingEvent[]
+
+    @@index([createdById])
+    @@index([assignedCourierId])
+    @@index([status])
+}
+
+model TrackingEvent {
+    id                  String          @id @default(uuid())
+    shipmentId          String
+    status              ShipmentStatus
+    locationLat         Float?
+    locationLng         Float?
+    note                String?
+    createdAt           DateTime        @default(now())
+
+    shipment            Shipment        @relation(fields: [shipmentId], references: [id])
+
+    @@index([shipmentId, createdAt])
+}
+
+model RefreshToken {
+    id           String   @id @default(uuid())
+    token        String   @unique
+    userId       String
+    expiresAt    DateTime
+    createdAt    DateTime @default(now())
+
+    user         User     @relation("UserRefreshTokens", fields: [userId], references: [id], onDelete: Cascade)
+
+    @@index([userId])
+    @@index([expiresAt])
+}
+
+model AuditLog {
+    id           String   @id @default(uuid())
+    actorUserId  String?
+    actionType   String
+    targetType   String
+    targetId     String?
+    metadata     Json?
+    createdAt    DateTime @default(now())
+
+    actor        User?     @relation("UserAuditLogs", fields: [actorUserId], references: [id])
+
+    @@index([createdAt])
+    @@index([actionType])
+    @@index([actorUserId])
+}
