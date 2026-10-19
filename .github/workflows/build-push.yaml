@@ -203,22 +203,59 @@ jobs:
           cosign sign --yes "$IMAGE@$digest"
           echo "Signed $IMAGE@$digest" >> "$GITHUB_STEP_SUMMARY"
 
+  # Record the new image in the config repo; Argo CD does the actual deploy.
+  #   uat/staging: commit the tag straight to main (Argo CD syncs automatically)
+  #   production : push a promote/production/<tag> branch; the config repo turns
+  #                it into a pull request that a person must review and merge
   promote:
     needs: [prepare, publish]
     # Runs after a fresh build (develop) or straight away when reusing (qa/main).
     if: always() && needs.prepare.result == 'success' && contains(fromJSON('["success", "skipped"]'), needs.publish.result)
     runs-on: ubuntu-24.04
+    env:
+      ENVIRONMENT: ${{ needs.prepare.outputs.environment }}
+      TAG: ${{ needs.prepare.outputs.tag }}
+      APPS: rssb-pilot-backend rssb-pilot-frontend
     steps:
-      - name: Record the release for this environment
-        env:
-          ENVIRONMENT: ${{ needs.prepare.outputs.environment }}
-          TAG: ${{ needs.prepare.outputs.tag }}
-          PREFIX: ${{ needs.prepare.outputs.image_prefix }}
+      - name: Check out the config repo (deploy key, this repo only)
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: KAMAHORO123/rssb-config
+          ssh-key: ${{ secrets.CONFIG_REPO_DEPLOY_KEY }}
+          path: config
+      - name: Write the image tag
+        working-directory: config
         run: |
-          {
-            echo "### $ENVIRONMENT should now run \`$TAG\`"
-            echo ""
-            for img in backend backend-migrator frontend; do echo "- \`$PREFIX/$img:$TAG\`"; done
-            echo ""
-            echo "_TODO (Phase 4): write this tag into values-$ENVIRONMENT.yaml in the config repo._"
-          } >> "$GITHUB_STEP_SUMMARY"
+          case "$ENVIRONMENT" in
+            uat) suffix=uat ;; staging) suffix=staging ;; production) suffix=prod ;;
+          esac
+          for app in $APPS; do
+            # Replace only the value, keep the comment on the line.
+            sed -i -E "s|^(  tag: )[^ ]+|\1$TAG|" "apps/$app/values-$suffix.yaml"
+          done
+          git diff --stat
+          echo "SUFFIX=$suffix" >> "$GITHUB_ENV"
+      - name: Commit and push
+        working-directory: config
+        env:
+          SOURCE: ${{ github.repository }}@${{ github.sha }}
+        run: |
+          if git diff --quiet; then
+            echo "Already at $TAG in $ENVIRONMENT, nothing to do." >> "$GITHUB_STEP_SUMMARY"; exit 0
+          fi
+          git config user.name "rssb-ci-bot"
+          git config user.email "rssb-ci-bot@users.noreply.github.com"
+          git commit -qam "Deploy $TAG to $ENVIRONMENT" -m "Source: $SOURCE"
+          if [ "$ENVIRONMENT" = production ]; then
+            branch="promote/production/$TAG"
+            git push -f origin "HEAD:refs/heads/$branch"
+            echo "### Production promotion PR requested for \`$TAG\`" >> "$GITHUB_STEP_SUMMARY"
+            echo "Review and merge it in rssb-config, then press **Sync** in Argo CD." >> "$GITHUB_STEP_SUMMARY"
+          else
+            # Another pipeline may have pushed meanwhile: rebase and retry.
+            for attempt in 1 2 3 4 5; do
+              git push origin HEAD:main && break
+              sleep $((attempt * 3)); git pull --rebase -q origin main
+            done
+            echo "### $ENVIRONMENT now targets \`$TAG\` (Argo CD syncs automatically)" >> "$GITHUB_STEP_SUMMARY"
+          fi
