@@ -1,0 +1,10 @@
+# Trivy risk acceptances. Every entry needs: reason, owner, and an expiry date
+# (exp:YYYY-MM-DD) after which the finding blocks the pipeline again.
+
+# next 14.x CRITICAL, fixed only in 15.5.24 / 16.3.3 (major upgrade, tracked separately).
+# Windows-only path traversal in the incremental cache; our images run on Linux.
+# Owner: platform team. Review: upgrade to Next 15.
+CVE-2026-75604 exp:2026-12-31
+# RCE in libheif via sharp during AVIF image optimization. sharp is not installed
+# in the image, the app does not use next/image, and images.unoptimized is set.
+GHSA-2xp9-vwfh-vxw4 exp:2026-12-31
