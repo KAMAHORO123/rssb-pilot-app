@@ -22,7 +22,10 @@ FROM node:24.21.0-alpine3.23@sha256:9ec4a2e289874ed0d722e1772ec2de45d2801541db86
 RUN apk add --no-cache openssl
 WORKDIR /app
 COPY package.json package-lock.json ./
-RUN npm pkg set dependencies.prisma=5.22.0 dependencies.ts-node=10.9.2 dependencies.typescript=5.9.3 \
+# Move the three tools from devDependencies to dependencies: a package listed in
+# both counts as dev, and --omit=dev would silently leave it out.
+RUN npm pkg delete devDependencies.prisma devDependencies.ts-node devDependencies.typescript \
+    && npm pkg set dependencies.prisma=5.22.0 dependencies.ts-node=10.9.2 dependencies.typescript=5.9.3 \
     && npm install --omit=dev --no-audit --no-fund \
     && npm cache clean --force
 COPY prisma ./prisma
@@ -44,6 +47,8 @@ COPY package.json tsconfig.json ./
 COPY --from=migrator-deps /app/node_modules ./node_modules
 COPY prisma ./prisma
 COPY src/env ./src/env
+# Fail the BUILD (not the Kubernetes Job) if a migration tool is missing.
+RUN prisma --version > /dev/null && ts-node --version
 USER 1000:1000
 CMD ["sh", "-c", "prisma migrate deploy && if [ \"$RUN_SEED\" = \"true\" ]; then prisma db seed; fi"]
 
