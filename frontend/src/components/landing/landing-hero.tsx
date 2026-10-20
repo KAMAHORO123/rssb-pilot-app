@@ -21,7 +21,7 @@ export default function LandingHero({
         </p>
 
         <h1 className="landing-animate-in landing-animate-in-delay-1 landing-display mt-6 text-5xl leading-[1.05] text-slate-950 md:text-7xl">
-          Shipment operations, simplified.
+          Shipment operations, by RSSB Testing.
         </h1>
 
         <p className="landing-animate-in landing-animate-in-delay-2 landing-muted mx-auto mt-6 max-w-xl text-lg leading-relaxed md:text-xl">
