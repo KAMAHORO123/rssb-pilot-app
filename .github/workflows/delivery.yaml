@@ -1,0 +1,29 @@
+# After a merge: build once, scan, push, sign, then record the image digests in
+# platform-gitops. develop -> uat, staging -> staging (same image, no rebuild),
+# main -> prod after approval in the "production" Environment.
+name: Delivery
+
+on:
+  push:
+    branches: [develop, staging, main]
+
+permissions:
+  contents: read
+  packages: write
+  id-token: write
+
+concurrency:
+  group: delivery-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  delivery:
+    uses: KAMAHORO123/rssb-devops/.github/workflows/node-delivery.yaml@v1.0.0
+    with:
+      gitops-repo: KAMAHORO123/platform-gitops
+      images: >-
+        [{"name": "backend", "context": "backend", "dockerfile": "docker/backend.Dockerfile", "target": "runtime", "app": "rssb-pilot-backend"},
+         {"name": "backend-migrator", "context": "backend", "dockerfile": "docker/backend.Dockerfile", "target": "migrator", "app": "rssb-pilot-backend"},
+         {"name": "frontend", "context": "frontend", "dockerfile": "docker/frontend.Dockerfile", "target": "runtime", "app": "rssb-pilot-frontend"}]
+    secrets:
+      gitops-deploy-key: ${{ secrets.CONFIG_REPO_DEPLOY_KEY }}

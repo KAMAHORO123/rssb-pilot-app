@@ -15,12 +15,37 @@ RUN npm ci
 COPY . .
 RUN npx prisma generate && npm run build
 
+# ---- Stage "migrator-deps": production deps + ONLY the migration tooling ----
+# (prisma CLI, ts-node, typescript for the seed). The dev toolchain (jest,
+# eslint...) stays out, so the migrator passes the same HIGH/CRITICAL gate.
+FROM node:24.21.0-alpine3.23@sha256:9ec4a2e289874ed0d722e1772ec2de45d2801541db8612f3638b26f128c69ac2 AS migrator-deps
+RUN apk add --no-cache openssl
+WORKDIR /app
+COPY package.json package-lock.json ./
+RUN npm pkg set dependencies.prisma=5.22.0 dependencies.ts-node=10.9.2 dependencies.typescript=5.9.3 \
+    && npm install --omit=dev --no-audit --no-fund \
+    && npm cache clean --force
+COPY prisma ./prisma
+RUN npx prisma generate
+
 # ---- Target "migrator": applies migrations (and optional seed data) ----
-# Runs as a one-off Kubernetes Job before the app is rolled out.
-# Build with: docker build --target migrator ...
-FROM builder AS migrator
+# Runs as the wave -1 Job before each rollout. No package manager inside:
+# prisma and ts-node are called from node_modules/.bin.
+FROM node:24.21.0-alpine3.23@sha256:9ec4a2e289874ed0d722e1772ec2de45d2801541db8612f3638b26f128c69ac2 AS migrator
+RUN apk add --no-cache openssl \
+    && rm -rf /usr/local/lib/node_modules/npm /usr/local/lib/node_modules/corepack /opt/yarn-* \
+              /usr/local/bin/npm /usr/local/bin/npx /usr/local/bin/corepack \
+              /usr/local/bin/yarn /usr/local/bin/yarnpkg
+WORKDIR /app
+ENV NODE_ENV=production \
+    TS_NODE_TRANSPILE_ONLY=true \
+    PATH=/app/node_modules/.bin:$PATH
+COPY package.json tsconfig.json ./
+COPY --from=migrator-deps /app/node_modules ./node_modules
+COPY prisma ./prisma
+COPY src/env ./src/env
 USER 1000:1000
-CMD ["sh", "-c", "npx prisma migrate deploy && if [ \"$RUN_SEED\" = \"true\" ]; then npx prisma db seed; fi"]
+CMD ["sh", "-c", "prisma migrate deploy && if [ \"$RUN_SEED\" = \"true\" ]; then prisma db seed; fi"]
 
 # ---- Stage "prod-deps": production-only node_modules ----
 FROM node:24.21.0-alpine3.23@sha256:9ec4a2e289874ed0d722e1772ec2de45d2801541db8612f3638b26f128c69ac2 AS prod-deps
