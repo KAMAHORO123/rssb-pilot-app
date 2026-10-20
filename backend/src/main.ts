@@ -2,6 +2,7 @@ import "./env/load-env";
 import "reflect-metadata";
 import { ValidationPipe } from "@nestjs/common";
 import { NestFactory } from "@nestjs/core";
+import { NestExpressApplication } from "@nestjs/platform-express";
 import { DocumentBuilder, SwaggerModule } from "@nestjs/swagger";
 import helmet from "helmet";
 import { AppModule } from "./app.module";
@@ -9,7 +10,13 @@ import { RequestLoggingInterceptor } from "./common/interceptors/request-logging
 import { GlobalExceptionFilter } from "./common/filters/global-exception.filter";
 
 async function bootstrap() {
-  const app = await NestFactory.create(AppModule);
+  const app = await NestFactory.create<NestExpressApplication>(AppModule);
+
+  // Exactly one reverse proxy (the ingress / gateway) sits in front of the API.
+  // Trusting it makes req.ip the real client address from X-Forwarded-For, so
+  // the rate limiter counts per user instead of treating every user as the
+  // proxy's single IP (all users sharing 60 requests per minute).
+  app.set("trust proxy", 1);
 
   app.use(
     helmet({
