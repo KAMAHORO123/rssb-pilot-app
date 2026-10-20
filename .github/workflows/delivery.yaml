@@ -18,7 +18,7 @@ concurrency:
 
 jobs:
   delivery:
-    uses: KAMAHORO123/rssb-devops/.github/workflows/node-delivery.yaml@v1.0.0
+    uses: KAMAHORO123/rssb-devops/.github/workflows/node-delivery.yaml@v1.0.1
     with:
       gitops-repo: KAMAHORO123/platform-gitops
       images: >-
